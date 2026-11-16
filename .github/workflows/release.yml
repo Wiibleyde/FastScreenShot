@@ -1,0 +1,49 @@
+# Every push to main (merged PR or direct push) builds the exe and publishes
+# a GitHub release tagged with the next patch version (v0.1.0, v0.1.1, ...).
+# Latest download: https://github.com/<owner>/<repo>/releases/latest/download/FastScreenShots.exe
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Compute next tag
+        id: version
+        shell: bash
+        run: |
+          last=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$last" ]; then
+            next="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          else
+            IFS=. read -r major minor patch <<< "${last#v}"
+            next="v$major.$minor.$((patch + 1))"
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: >
+          gh release create "$TAG" target/release/FastScreenShots.exe
+          --target "$GITHUB_SHA" --title "$TAG" --generate-notes
